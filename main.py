@@ -19,7 +19,7 @@ tasks = [
 ]
 
 # Root – describe the API
-@app.get("/")
+@app.get("/", description="Root endpoint with API information")
 def read_root():
     return {
         "name": "Task API",
@@ -28,16 +28,16 @@ def read_root():
     }
 
 # Health check – used by monitoring tools
-@app.get("/health")
+@app.get("/health", description="Health check for monitoring")
 def health_check():
     return {"status": "ok"}
 
 # ----- READ endpoints -----
-@app.get("/tasks")
+@app.get("/tasks", description="List all tasks")
 def list_tasks():
     return tasks
 
-@app.get("/tasks/{task_id}")
+@app.get("/tasks/{task_id}", description="Get a single task by ID")
 def get_task(task_id: int):
     for task in tasks:
         if task["id"] == task_id:
@@ -46,7 +46,7 @@ def get_task(task_id: int):
     raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
 
 # ----- CREATE -----
-@app.post("/tasks", status_code=201)
+@app.post("/tasks", status_code=201, description="Create a new task")
 def create_task(task_data: TaskCreate):
     # Validate title
     if not task_data.title or not task_data.title.strip():
@@ -62,7 +62,7 @@ def create_task(task_data: TaskCreate):
     return new_task
 
 # ----- UPDATE -----
-@app.put("/tasks/{task_id}")
+@app.put("/tasks/{task_id}", description="Update an existing task")
 def update_task(task_id: int, update_data: TaskUpdate):
     # Find the task
     for task in tasks:
@@ -78,7 +78,7 @@ def update_task(task_id: int, update_data: TaskUpdate):
     raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
 
 # ----- DELETE -----
-@app.delete("/tasks/{task_id}", status_code=204)
+@app.delete("/tasks/{task_id}", status_code=204, description="Delete a task")
 def delete_task(task_id: int):
     for i, task in enumerate(tasks):
         if task["id"] == task_id:
