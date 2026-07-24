@@ -5,7 +5,7 @@ app = FastAPI()
 
 # ----- Models -----
 class TaskCreate(BaseModel):
-    title: str   # required; must not be empty (we'll validate later)
+    title: str | None = None
 
 class TaskUpdate(BaseModel):
     title: str | None = None   # optional
@@ -64,6 +64,10 @@ def create_task(task_data: TaskCreate):
 # ----- UPDATE -----
 @app.put("/tasks/{task_id}", description="Update an existing task")
 def update_task(task_id: int, update_data: TaskUpdate):
+
+    if update_data.title is None and update_data.done is None:
+        raise HTTPException(status_code=400, detail="Request body cannot be empty")
+    
     # Find the task
     for task in tasks:
         if task["id"] == task_id:
