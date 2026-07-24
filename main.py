@@ -7,6 +7,10 @@ app = FastAPI()
 class TaskCreate(BaseModel):
     title: str   # required; must not be empty (we'll validate later)
 
+class TaskUpdate(BaseModel):
+    title: str | None = None   # optional
+    done: bool | None = None
+
 # ----- In‑memory “database” -----
 tasks = [
     {"id": 1, "title": "Learn FastAPI", "done": False},
@@ -56,3 +60,28 @@ def create_task(task_data: TaskCreate):
     }
     tasks.append(new_task)
     return new_task
+
+# ----- UPDATE -----
+@app.put("/tasks/{task_id}")
+def update_task(task_id: int, update_data: TaskUpdate):
+    # Find the task
+    for task in tasks:
+        if task["id"] == task_id:
+            # Validate title if provided
+            if update_data.title is not None:
+                if not update_data.title.strip():
+                    raise HTTPException(status_code=400, detail="Title cannot be empty")
+                task["title"] = update_data.title.strip()
+            if update_data.done is not None:
+                task["done"] = update_data.done
+            return task
+    raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+
+# ----- DELETE -----
+@app.delete("/tasks/{task_id}", status_code=204)
+def delete_task(task_id: int):
+    for i, task in enumerate(tasks):
+        if task["id"] == task_id:
+            tasks.pop(i)
+            return   # no content
+    raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
