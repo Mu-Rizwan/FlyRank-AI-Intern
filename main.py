@@ -82,15 +82,20 @@ def health_check():
 # ----- READ endpoints -----
 @app.get("/tasks", description="List all tasks")
 def list_tasks():
-    return tasks
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM tasks").fetchall()
+    conn.close()
+    # Convert rows to list of dicts
+    return [dict(row) for row in rows]
 
 @app.get("/tasks/{task_id}", description="Get a single task by ID")
 def get_task(task_id: int):
-    for task in tasks:
-        if task["id"] == task_id:
-            return task
-    # If not found, raise 404
-    raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    conn = get_db()
+    row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    conn.close()
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    return dict(row)
 
 # ----- CREATE -----
 @app.post("/tasks", status_code=201, description="Create a new task")
