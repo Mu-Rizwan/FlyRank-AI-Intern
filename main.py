@@ -100,18 +100,25 @@ def get_task(task_id: int):
 # ----- CREATE -----
 @app.post("/tasks", status_code=201, description="Create a new task")
 def create_task(task_data: TaskCreate):
-    # Validate title
+    # Validation (same as Week 2)
     if not task_data.title or not task_data.title.strip():
         raise HTTPException(status_code=400, detail="Title is required and cannot be empty")
     
-    new_id = max([t["id"] for t in tasks], default=0) + 1
-    new_task = {
-        "id": new_id,
-        "title": task_data.title.strip(),
-        "done": False
-    }
-    tasks.append(new_task)
-    return new_task
+    conn = get_db()
+    cursor = conn.execute(
+        "INSERT INTO tasks (title, done) VALUES (?, ?)",
+        (task_data.title.strip(), 0)
+    )
+    conn.commit()
+    new_id = cursor.lastrowid
+    conn.close()
+    
+    # Fetch the newly created task to return it
+    conn = get_db()
+    new_task = conn.execute("SELECT * FROM tasks WHERE id = ?", (new_id,)).fetchone()
+    conn.close()
+    
+    return dict(new_task)
 
 # ----- UPDATE -----
 @app.put("/tasks/{task_id}", description="Update an existing task")
