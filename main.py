@@ -123,28 +123,51 @@ def create_task(task_data: TaskCreate):
 # ----- UPDATE -----
 @app.put("/tasks/{task_id}", description="Update an existing task")
 def update_task(task_id: int, update_data: TaskUpdate):
-
+    # Check if body is empty
     if update_data.title is None and update_data.done is None:
         raise HTTPException(status_code=400, detail="Request body cannot be empty")
     
-    # Find the task
-    for task in tasks:
-        if task["id"] == task_id:
-            # Validate title if provided
-            if update_data.title is not None:
-                if not update_data.title.strip():
-                    raise HTTPException(status_code=400, detail="Title cannot be empty")
-                task["title"] = update_data.title.strip()
-            if update_data.done is not None:
-                task["done"] = update_data.done
-            return task
-    raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    conn = get_db()
+    
+    # First, check if the task exists
+    existing = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    if existing is None:
+        conn.close()
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    
+    # Build update dynamically
+    current = dict(existing)
+    if update_data.title is not None:
+        if not update_data.title.strip():
+            conn.close()
+            raise HTTPException(status_code=400, detail="Title cannot be empty")
+        current["title"] = update_data.title.strip()
+    if update_data.done is not None:
+        current["done"] = 1 if update_data.done else 0
+    
+    # Perform UPDATE
+    conn.execute(
+        "UPDATE tasks SET title = ?, done = ? WHERE id = ?",
+        (current["title"], current["done"], task_id)
+    )
+    conn.commit()
+    conn.close()
+    
+    # Return updated task
+    conn = get_db()
+    updated = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    conn.close()
+    return dict(updated)
 
 # ----- DELETE -----
 @app.delete("/tasks/{task_id}", status_code=204, description="Delete a task")
 def delete_task(task_id: int):
-    for i, task in enumerate(tasks):
-        if task["id"] == task_id:
-            tasks.pop(i)
-            return   # no content
-    raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    conn = get_db()
+    cursor = conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+    conn.commit()
+    rows_deleted = cursor.rowcount
+    conn.close()
+    
+    if rows_deleted == 0:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    # Returns 204 No Content automatically
