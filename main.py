@@ -1,16 +1,63 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+import sqlite3
+from contextlib import asynccontextmanager
 
-app = FastAPI()
+# ----- Database Setup Functions -----
+def init_db():
+    """Creates the table and seeds example tasks if the table is empty."""
+    conn = sqlite3.connect("tasks.db")
+    cursor = conn.cursor()
+    
+    # 1. Create table if it doesn't exist
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            done INTEGER DEFAULT 0
+        )
+    """)
+    
+    # 2. Check if table is empty (prevents duplicate seeding on restart)
+    cursor.execute("SELECT COUNT(*) FROM tasks")
+    count = cursor.fetchone()[0]
+    
+    # 3. Seed only if empty
+    if count == 0:
+        example_tasks = [
+            ("Learn FastAPI", 0),
+            ("Build CRUD API", 0),
+            ("Write README", 1)
+        ]
+        cursor.executemany("INSERT INTO tasks (title, done) VALUES (?, ?)", example_tasks)
+        conn.commit()
+    
+    conn.close()
 
-# ----- Models -----
+def get_db():
+    """Returns a connection to the SQLite database with row factory for dict-like access."""
+    conn = sqlite3.connect("tasks.db")
+    conn.row_factory = sqlite3.Row
+    return conn
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # This runs BEFORE the server starts accepting requests
+    init_db()
+    yield
+    # This runs AFTER the server shuts down (cleanup goes here, if needed)
+
+# ----- Initialize FastAPI with the lifespan -----
+app = FastAPI(lifespan=lifespan)
+
+# ----- Models (unchanged) -----
 class TaskCreate(BaseModel):
     title: str | None = None
 
 class TaskUpdate(BaseModel):
-    title: str | None = None   # optional
+    title: str | None = None
     done: bool | None = None
-
+    
 # ----- In‑memory “database” -----
 tasks = [
     {"id": 1, "title": "Learn FastAPI", "done": False},
