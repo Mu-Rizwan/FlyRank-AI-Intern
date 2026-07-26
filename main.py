@@ -58,13 +58,6 @@ class TaskUpdate(BaseModel):
     title: str | None = None
     done: bool | None = None
     
-# ----- In‑memory “database” -----
-tasks = [
-    {"id": 1, "title": "Learn FastAPI", "done": False},
-    {"id": 2, "title": "Build CRUD API", "done": False},
-    {"id": 3, "title": "Write README", "done": True}
-]
-
 # Root – describe the API
 @app.get("/", description="Root endpoint with API information")
 def read_root():
