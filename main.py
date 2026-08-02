@@ -1,166 +1,154 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import sqlite3
 from contextlib import asynccontextmanager
+import os
+import psycopg
+from psycopg.rows import dict_row
+from dotenv import load_dotenv
 
-# ----- Database Setup Functions -----
-def init_db():
-    """Creates the table and seeds example tasks if the table is empty."""
-    conn = sqlite3.connect("tasks.db")
-    cursor = conn.cursor()
-    
-    # 1. Create table if it doesn't exist
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            done INTEGER DEFAULT 0
-        )
-    """)
-    
-    # 2. Check if table is empty (prevents duplicate seeding on restart)
-    cursor.execute("SELECT COUNT(*) FROM tasks")
-    count = cursor.fetchone()[0]
-    
-    # 3. Seed only if empty
-    if count == 0:
-        example_tasks = [
-            ("Learn FastAPI", 0),
-            ("Build CRUD API", 0),
-            ("Write README", 1)
-        ]
-        cursor.executemany("INSERT INTO tasks (title, done) VALUES (?, ?)", example_tasks)
-        conn.commit()
-    
-    conn.close()
+# Load environment variables from .env
+load_dotenv()
 
-def get_db():
-    """Returns a connection to the SQLite database with row factory for dict-like access."""
-    conn = sqlite3.connect("tasks.db")
-    conn.row_factory = sqlite3.Row
-    return conn
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL environment variable is not set")
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # This runs BEFORE the server starts accepting requests
-    init_db()
-    yield
-    # This runs AFTER the server shuts down (cleanup goes here, if needed)
-
-# ----- Initialize FastAPI with the lifespan -----
-app = FastAPI(lifespan=lifespan)
-
-# ----- Models (unchanged) -----
+# ----- Pydantic Models (same as before) -----
 class TaskCreate(BaseModel):
     title: str | None = None
 
 class TaskUpdate(BaseModel):
     title: str | None = None
     done: bool | None = None
-    
-# Root – describe the API
+
+# ----- Database connection helper -----
+def get_db_connection():
+    """Returns a connection with dict_row factory."""
+    return psycopg.connect(DATABASE_URL, row_factory=dict_row)
+
+# ----- Database initialization (table + seed) -----
+def init_db():
+    """Creates the tasks table and seeds examples if empty."""
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            # 1. Create table
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS tasks (
+                    id SERIAL PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    done BOOLEAN DEFAULT FALSE
+                )
+            """)
+            # 2. Check if empty (prevents duplicate seeding)
+            cur.execute("SELECT COUNT(*) FROM tasks")
+            count = cur.fetchone()["count"]
+            if count == 0:
+                # 3. Seed examples
+                example_tasks = [
+                    ("Learn FastAPI", False),
+                    ("Build CRUD API", False),
+                    ("Write README", True)
+                ]
+                cur.executemany(
+                    "INSERT INTO tasks (title, done) VALUES (%s, %s)",
+                    example_tasks
+                )
+                conn.commit()
+
+# ----- Lifespan (modern replacement for on_event) -----
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Runs on startup
+    init_db()
+    yield
+    # Runs on shutdown (cleanup if needed)
+
+# ----- FastAPI app -----
+app = FastAPI(lifespan=lifespan)
+
+# ----- Root & Health (unchanged) -----
 @app.get("/", description="Root endpoint with API information")
 def read_root():
-    return {
-        "name": "Task API",
-        "version": "1.0",
-        "endpoints": ["/tasks"]
-    }
+    return {"name": "Task API", "version": "1.0", "endpoints": ["/tasks"]}
 
-# Health check – used by monitoring tools
 @app.get("/health", description="Health check for monitoring")
 def health_check():
     return {"status": "ok"}
 
-# ----- READ endpoints -----
+# ----- READ -----
 @app.get("/tasks", description="List all tasks")
 def list_tasks():
-    conn = get_db()
-    rows = conn.execute("SELECT * FROM tasks").fetchall()
-    conn.close()
-    # Convert rows to list of dicts
-    return [dict(row) for row in rows]
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM tasks")
+            return cur.fetchall()
 
 @app.get("/tasks/{task_id}", description="Get a single task by ID")
 def get_task(task_id: int):
-    conn = get_db()
-    row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
-    conn.close()
-    if row is None:
-        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
-    return dict(row)
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM tasks WHERE id = %s", (task_id,))
+            row = cur.fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+            return row
 
 # ----- CREATE -----
 @app.post("/tasks", status_code=201, description="Create a new task")
 def create_task(task_data: TaskCreate):
-    # Validation (same as Week 2)
     if not task_data.title or not task_data.title.strip():
         raise HTTPException(status_code=400, detail="Title is required and cannot be empty")
     
-    conn = get_db()
-    cursor = conn.execute(
-        "INSERT INTO tasks (title, done) VALUES (?, ?)",
-        (task_data.title.strip(), 0)
-    )
-    conn.commit()
-    new_id = cursor.lastrowid
-    conn.close()
-    
-    # Fetch the newly created task to return it
-    conn = get_db()
-    new_task = conn.execute("SELECT * FROM tasks WHERE id = ?", (new_id,)).fetchone()
-    conn.close()
-    
-    return dict(new_task)
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO tasks (title, done) VALUES (%s, %s) RETURNING *",
+                (task_data.title.strip(), False)
+            )
+            new_task = cur.fetchone()
+            conn.commit()
+            return new_task
 
 # ----- UPDATE -----
 @app.put("/tasks/{task_id}", description="Update an existing task")
 def update_task(task_id: int, update_data: TaskUpdate):
-    # Check if body is empty
     if update_data.title is None and update_data.done is None:
         raise HTTPException(status_code=400, detail="Request body cannot be empty")
     
-    conn = get_db()
-    
-    # First, check if the task exists
-    existing = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
-    if existing is None:
-        conn.close()
-        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
-    
-    # Build update dynamically
-    current = dict(existing)
-    if update_data.title is not None:
-        if not update_data.title.strip():
-            conn.close()
-            raise HTTPException(status_code=400, detail="Title cannot be empty")
-        current["title"] = update_data.title.strip()
-    if update_data.done is not None:
-        current["done"] = 1 if update_data.done else 0
-    
-    # Perform UPDATE
-    conn.execute(
-        "UPDATE tasks SET title = ?, done = ? WHERE id = ?",
-        (current["title"], current["done"], task_id)
-    )
-    conn.commit()
-    conn.close()
-    
-    # Return updated task
-    conn = get_db()
-    updated = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
-    conn.close()
-    return dict(updated)
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            # Check if exists
+            cur.execute("SELECT * FROM tasks WHERE id = %s", (task_id,))
+            existing = cur.fetchone()
+            if existing is None:
+                raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+            
+            # Build update fields
+            new_title = existing["title"]
+            new_done = existing["done"]
+            if update_data.title is not None:
+                if not update_data.title.strip():
+                    raise HTTPException(status_code=400, detail="Title cannot be empty")
+                new_title = update_data.title.strip()
+            if update_data.done is not None:
+                new_done = update_data.done
+            
+            # Update and return the new row
+            cur.execute(
+                "UPDATE tasks SET title = %s, done = %s WHERE id = %s RETURNING *",
+                (new_title, new_done, task_id)
+            )
+            updated = cur.fetchone()
+            conn.commit()
+            return updated
 
 # ----- DELETE -----
 @app.delete("/tasks/{task_id}", status_code=204, description="Delete a task")
 def delete_task(task_id: int):
-    conn = get_db()
-    cursor = conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
-    conn.commit()
-    rows_deleted = cursor.rowcount
-    conn.close()
-    
-    if rows_deleted == 0:
-        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
-    # Returns 204 No Content automatically
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM tasks WHERE id = %s", (task_id,))
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+            conn.commit()
+            # Returns 204 No Content automatically
