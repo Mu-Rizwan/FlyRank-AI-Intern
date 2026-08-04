@@ -74,6 +74,46 @@ Swagger UI at:
 | DELETE | `/tasks/{id}`  | Delete a task                      | 204            | 404 (not found)          |
 
 ---
+## 🐳 Containerization (Docker & Postgres)
+
+This project now runs entirely inside Docker containers using **Docker Compose**.
+
+- **Why Postgres?** It's a production‑grade relational database that runs as its own server. FlyRank uses Postgres in production.
+- **One‑command startup**: `docker compose up` starts both the FastAPI app and the PostgreSQL database.
+- **Secrets**: The database password is stored in a `.env` file (git‑ignored). A template is provided in `.env.example`.
+- **Persistence**: A named Docker volume (`taskdata`) keeps your data safe even when containers are stopped or removed.
+
+### How to run (for a stranger)
+
+```bash
+# Clone the repo
+git clone https://github.com/your-username/todo-crud-api.git
+cd todo-crud-api
+
+# Copy the environment template
+cp .env.example .env
+
+# Start everything
+docker compose up --build
+```
+
+The API will be available at `http://localhost:8000`.  
+Swagger UI at `http://localhost:8000/docs`.
+
+### Database screenshot
+
+![PostgreSQL data in psql](Screenshots/A3-screenshot.png)
+
+### Example SQL query (Stage 4)
+
+I ran this inside the Postgres container:
+
+```sql
+SELECT * FROM tasks;
+```
+
+It returned the tasks stored in the database, exactly matching what the API serves.
+---
 
 ## 🗄️ Database
 
@@ -87,7 +127,7 @@ This project uses **SQLite** for persistent storage.
 
 ### DB Browser Screenshot
 
-![DB Browser showing the tasks table](A2_Screenshot/db-screenshot.png)
+![DB Browser showing the tasks table](Screenshots/A2-screenshot.png)
 
 ### Example SQL Query (Stage 4)
 
