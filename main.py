@@ -52,12 +52,29 @@ def signup(user_data: SignUpRequest):
         raise HTTPException(status_code=400, detail="Signup failed")
     
     return {"user": response.user.model_dump()}
-
+    
 # ----- Login endpoint (required) -----
 @app.post("/auth/login")
 def login(user_data: LoginRequest):
     if not user_data.email or not user_data.password:
         raise HTTPException(status_code=400, detail="Email and password are required")
+    try:
+        response = supabase.auth.sign_in_with_password({
+        "email": user_data.email,
+        "password": user_data.password
+        })
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Invalid login credentials")
+                
+    if response.user is None:
+        raise HTTPException(status_code=401, detail="Invalid login credentials")
+                
+        # Return access token and refresh token
+    return {
+        "access_token": response.session.access_token,
+        "refresh_token": response.session.refresh_token,
+        "user": response.user.model_dump()
+    }
 
 # ----- Public endpoint (required) -----
 @app.get("/public/info")
@@ -70,7 +87,6 @@ def protected_profile(authorization: str = Header(None)):
     if not authorization:
         raise HTTPException(status_code=401, detail="Access token required")
     
-    # Expecting "Bearer <token>"
     parts = authorization.split()
     if len(parts) != 2 or parts[0].lower() != "bearer":
         raise HTTPException(status_code=401, detail="Invalid Authorization header format")
@@ -79,23 +95,18 @@ def protected_profile(authorization: str = Header(None)):
     if not token:
         raise HTTPException(status_code=401, detail="Access token required")
     
-    # For now, just return a placeholder (we'll verify in Stage 3)
-    return {"message": "You have a token, but I haven't verified it yet", "token": token}
-
     try:
-        response = supabase.auth.sign_in_with_password({
-            "email": user_data.email,
-            "password": user_data.password
-        })
+        # Verify token with Supabase
+        user_response = supabase.auth.get_user(token)
     except Exception as e:
-        raise HTTPException(status_code=401, detail="Invalid login credentials")
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
     
-    if response.user is None:
-        raise HTTPException(status_code=401, detail="Invalid login credentials")
+    if user_response.user is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
     
-    # Return access token and refresh token
+    # Return user info
     return {
-        "access_token": response.session.access_token,
-        "refresh_token": response.session.refresh_token,
-        "user": response.user.model_dump()
+        "id": user_response.user.id,
+        "email": user_response.user.email,
+        "created_at": user_response.user.created_at
     }
