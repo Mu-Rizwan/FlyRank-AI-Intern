@@ -1,212 +1,255 @@
-# Task CRUD API
 
-A simple RESTful API built with **FastAPI** (Python) that manages a to‑do list.  
-Supports full **CRUD** (Create, Read, Update, Delete) operations with proper HTTP status codes, input validation, and interactive documentation via **Swagger UI**.
+# Secure API with Supabase Auth
 
-This project was built as part of the **FlyRank AI Backend Internship – Week 2** assignment.
+A secure RESTful API built with **FastAPI** and **Supabase Auth** that handles user authentication – sign up, log in, log out – and protects routes using **JSON Web Token (JWT)** verification.
+
+This project was built as part of the **FlyRank AI Backend Internship – Week 4** assignment.
 
 ---
 
 ## ✨ Features
 
-- ✅ **Create** a task – `POST /tasks` → returns `201 Created`
-- 📖 **Read** all tasks – `GET /tasks` → returns `200 OK`
-- 🔍 **Read** a single task – `GET /tasks/{id}` → returns `200` or `404`
-- ✏️ **Update** a task – `PUT /tasks/{id}` → returns `200`, `400`, or `404`
-- 🗑️ **Delete** a task – `DELETE /tasks/{id}` → returns `204 No Content`
-- ✅ **Input validation** – missing/empty `title` returns `400 Bad Request`
-- 📄 **Interactive Swagger UI** at `/docs` – test everything with a click
-- 💾 **In‑memory storage** – data resets on server restart (database coming in Week 3!)
+- ✅ **User Signup** – Create a new account with email and password.
+- ✅ **User Login** – Authenticate and receive an access token (JWT).
+- ✅ **User Logout** – End the user session.
+- ✅ **Public Routes** – Open endpoints anyone can access.
+- ✅ **Protected Routes** – Routes that require a valid JWT (Bearer token).
+- ✅ **Token Verification** – All protected routes verify the token with Supabase.
+- ✅ **Reusable Auth Guard** – A single dependency/middleware protects multiple routes.
+- ✅ **Swagger UI** – Interactive API docs with an "Authorize" button for Bearer tokens.
 
 ---
 
 ## 🛠️ Tech Stack
 
 - **Python** 3.10+
-- **FastAPI** – web framework
+- **FastAPI** – Web framework
+- **Supabase** – Identity Provider (authentication & token issuer)
+- **PyJWT** / **Supabase SDK** – Token handling and verification
+- **python-dotenv** – Environment variable management
 - **Uvicorn** – ASGI server
-- **Pydantic** – data validation
-- **Swagger UI** – built‑in API documentation
+- **Swagger UI** – Built-in interactive API documentation
 
 ---
 
-## 🚀 Installation & Run
+## 📋 Prerequisites
+
+- **Python 3.10+** installed ([python.org](https://python.org))
+- **Supabase account** (free) – [supabase.com](https://supabase.com)
+- **Git** (for version control)
+- A **GitHub account** (for submission)
+
+---
+
+## 🔧 Setup & Environment Variables
 
 ### 1. Clone the repository
+
 ```bash
-git clone https://github.com/your-username/todo-crud-api.git
-cd todo-crud-api
+git clone https://github.com/your-username/auth-api-supabase.git
+cd auth-api-supabase
 ```
 
 ### 2. Create a virtual environment (recommended)
+
 ```bash
 python -m venv venv
 source venv/bin/activate      # On Windows: venv\Scripts\activate
 ```
 
 ### 3. Install dependencies
+
 ```bash
-pip install fastapi uvicorn
+pip install -r requirements.txt
 ```
 
-### 4. Start the server
+### 4. Create your Supabase project
+
+1. Go to [supabase.com](https://supabase.com) and sign up (free).
+2. Click **"New project"** and give it a name (e.g., `auth-practice`).
+3. Wait for the project to provision (a few minutes).
+4. In the dashboard, go to **Settings → API**.
+5. Copy:
+   - **Project URL** (e.g., `https://xxxxx.supabase.co`)
+   - **`anon` public key** (starts with `eyJ...`)
+6. In **Authentication → Providers → Email**, **disable "Confirm email"** for testing.
+
+### 5. Set up environment variables
+
+Create a `.env` file in the project root:
+
+```env
+SUPABASE_URL=https://your-project-id.supabase.co
+SUPABASE_KEY=your-anon-key
+PORT=8000
+```
+
+> ⚠️ **Never commit `.env` to GitHub** – it contains your live credentials.
+
+---
+
+## 🚀 Running the API
+
+Start the server:
+
 ```bash
 uvicorn main:app --reload
 ```
 
-The API will be available at:  
-👉 **http://localhost:8000**  
-Swagger UI at:  
-👉 **http://localhost:8000/docs**
+The API will be available at:
+
+- **http://localhost:8000**
+- **Interactive Swagger UI:** http://localhost:8000/docs
 
 ---
 
-## 📋 Endpoints
+## 📋 API Endpoints
 
-| Method | Path           | Description                        | Success Status | Error Statuses          |
-|--------|----------------|------------------------------------|----------------|--------------------------|
-| GET    | `/`            | API information                    | 200            | –                        |
-| GET    | `/health`      | Health check                       | 200            | –                        |
-| GET    | `/tasks`       | List all tasks                     | 200            | –                        |
-| GET    | `/tasks/{id}`  | Get a single task by ID            | 200            | 404 (not found)          |
-| POST   | `/tasks`       | Create a new task                  | 201            | 400 (invalid title)      |
-| PUT    | `/tasks/{id}`  | Update an existing task            | 200            | 400, 404                 |
-| DELETE | `/tasks/{id}`  | Delete a task                      | 204            | 404 (not found)          |
-
----
-## 🐳 Containerization (Docker & Postgres)
-
-This project now runs entirely inside Docker containers using **Docker Compose**.
-
-- **Why Postgres?** It's a production‑grade relational database that runs as its own server. FlyRank uses Postgres in production.
-- **One‑command startup**: `docker compose up` starts both the FastAPI app and the PostgreSQL database.
-- **Secrets**: The database password is stored in a `.env` file (git‑ignored). A template is provided in `.env.example`.
-- **Persistence**: A named Docker volume (`taskdata`) keeps your data safe even when containers are stopped or removed.
-
-### How to run (for a stranger)
-
-```bash
-# Clone the repo
-git clone https://github.com/your-username/todo-crud-api.git
-cd todo-crud-api
-
-# Copy the environment template
-cp .env.example .env
-
-# Start everything
-docker compose up --build
-```
-
-The API will be available at `http://localhost:8000`.  
-Swagger UI at `http://localhost:8000/docs`.
-
-### Database screenshot
-
-![PostgreSQL data in psql](Screenshots/A3-screenshot.png)
-
-### Example SQL query (Stage 4)
-
-I ran this inside the Postgres container:
-
-```sql
-SELECT * FROM tasks;
-```
-
-It returned the tasks stored in the database, exactly matching what the API serves.
----
-
-## 🗄️ Database
-
-This project uses **SQLite** for persistent storage.
-
-- **Why SQLite?** It’s serverless, zero‑configuration, and stores everything in a single file (`tasks.db`). Perfect for a small API where setup must be automatic.
-- The database file is created **automatically** on the first run.
-- The `tasks` table is created automatically if missing.
-- Three example tasks are seeded **only once** – restarting the server does **not** duplicate them.
-- All SQL queries use **parameterized placeholders** (`?`) to prevent SQL injection.
-
-### DB Browser Screenshot
-
-![DB Browser showing the tasks table](Screenshots/A2-screenshot.png)
-
-### Example SQL Query (Stage 4)
-
-I ran:
-```sql
-SELECT * FROM tasks;
-```
-It returned all tasks currently stored in the database, matching what the API serves at /tasks.
+| Method | Path | Description | Auth Required |
+|--------|------|-------------|---------------|
+| **POST** | `/auth/signup` | Create a new user account | ❌ No |
+| **POST** | `/auth/login` | Authenticate and receive an access token | ❌ No |
+| **POST** | `/auth/logout` | End the user session | ✅ Yes (Bearer) |
+| **GET** | `/public/info` | Public information (open to all) | ❌ No |
+| **GET** | `/protected/profile` | Get current user's profile | ✅ Yes (Bearer) |
+| **GET** | `/protected/dashboard` | A protected dashboard (example) | ✅ Yes (Bearer) |
 
 ---
 
 ## 🧪 Example Usage (curl)
 
-### Create a task
+### 1. Sign up a new user
+
 ```bash
-curl.exe -i -X POST http://localhost:8000/tasks \
+curl.exe -X POST http://localhost:8000/auth/signup \
   -H "Content-Type: application/json" \
-  -d "{\"title\": \"Learn FastAPI\"}"
+  -d "{\"email\":\"test@example.com\",\"password\":\"password123\"}"
 ```
 
-**Expected response:**
-```
-HTTP/1.1 201 Created
-...
+**Expected response (201 Created):**
+
+```json
 {
-  "id": 4,
-  "title": "Learn FastAPI",
-  "done": false
+  "user": {
+    "id": "abc-123-def",
+    "email": "test@example.com",
+    "created_at": "2025-01-01T00:00:00Z"
+  }
 }
 ```
 
-### Get all tasks
-```bash
-curl.exe -i http://localhost:8000/tasks
-```
+---
 
-### Get a single task
-```bash
-curl.exe -i http://localhost:8000/tasks/1
-```
+### 2. Log in and get an access token
 
-### Update a task
 ```bash
-curl.exe -i -X PUT http://localhost:8000/tasks/1 \
+curl.exe -X POST http://localhost:8000/auth/login \
   -H "Content-Type: application/json" \
-  -d "{\"done\": true}"
+  -d "{\"email\":\"test@example.com\",\"password\":\"password123\"}"
 ```
 
-### Delete a task
-```bash
-curl.exe -i -X DELETE http://localhost:8000/tasks/1
+**Expected response (200 OK):**
+
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
+  "user": {
+    "id": "abc-123-def",
+    "email": "test@example.com"
+  }
+}
 ```
-*(returns 204 No Content with an empty body)*
+
+Save the `access_token` for the next step.
 
 ---
 
-## 🖥️ Swagger UI (Interactive Docs)
+### 3. Access a protected route
+
+```bash
+curl.exe -H "Authorization: Bearer <YOUR_ACCESS_TOKEN>" \
+  http://localhost:8000/protected/profile
+```
+
+**Expected response (200 OK):**
+
+```json
+{
+  "id": "abc-123-def",
+  "email": "test@example.com",
+  "created_at": "2025-01-01T00:00:00Z"
+}
+```
+
+---
+
+### 4. Access a public route (no auth required)
+
+```bash
+curl.exe http://localhost:8000/public/info
+```
+
+**Expected response (200 OK):**
+
+```json
+{
+  "message": "Welcome stranger! This info is public."
+}
+```
+
+---
+
+### 5. Logout (protected route)
+
+```bash
+curl.exe -X POST -H "Authorization: Bearer <YOUR_ACCESS_TOKEN>" \
+  http://localhost:8000/auth/logout -i
+```
+
+**Expected response:** `204 No Content` (empty body).
+
+---
+
+### 6. Invalid / expired token
+
+```bash
+curl.exe -H "Authorization: Bearer fake-token" \
+  http://localhost:8000/protected/profile
+```
+
+**Expected response (401 Unauthorized):**
+
+```json
+{
+  "detail": "Invalid or expired token"
+}
+```
+
+---
+
+## 🖥️ Swagger UI (Interactive Documentation)
 
 FastAPI automatically generates interactive API documentation.
 
 1. Start the server.
-2. Open your browser and go to:  
-   **http://localhost:8000/docs**
-3. You’ll see all endpoints listed with a **Try it out** button.
-4. Click any endpoint, fill in the parameters, and send real requests – no `curl` needed!
+2. Open your browser and go to: **http://localhost:8000/docs**
+3. Click the **"Authorize"** button (lock icon) at the top.
+4. Paste your **access token** (without the "Bearer " prefix) and click **Authorize**.
+5. Now you can call any protected endpoint via **"Try it out"** – the token will be sent automatically.
+
+![Swagger UI with Bearer Auth](Screenshots/Authorize-lock.png)
 
 ---
 
-## 📝 Notes
+## 🔒 Security Notes
 
-- **In‑memory storage** – all tasks are stored in a Python list. When the server restarts, the data resets to the three default examples. This is intentional – a real database (PostgreSQL, SQLite, etc.) will be introduced in **Week 3**.
-- **Validation** – the server never trusts the client:
-  - `title` must be provided and cannot be an empty string.
-  - Missing/empty `title` in `POST` or `PUT` → `400 Bad Request` with a clear error message.
-- **Status codes** follow REST best practices:
-  - `201 Created` for successful POST.
-  - `204 No Content` for successful DELETE.
-  - `404 Not Found` for unknown IDs.
-  - `400 Bad Request` for validation failures.
+- **Tokens are stateless** – Supabase issues and verifies JWTs. Your server never stores passwords.
+- **Environment variables** – All secrets are loaded from `.env`, which is **git‑ignored**.
+- **No hardcoded credentials** – `.env.example` provides a template with placeholder values.
+- **401 vs 403** – This API uses:
+  - `401 Unauthorized` → "I don't know who you are" (missing/invalid token).
+  - `403 Forbidden` → "I know you, but you may not do that" (not implemented here, but ready for future authorization).
 
 ---
 
@@ -214,22 +257,55 @@ FastAPI automatically generates interactive API documentation.
 
 ```
 .
-├── main.py          # All API logic (routes, validation, storage)
-├── README.md        # This file
-└── screenshot.png   # Swagger UI screenshot
+├── main.py              # All API logic (routes, auth, security)
+├── requirements.txt     # Python dependencies
+├── .env                 # Real secrets (git-ignored)
+├── .env.example         # Template for environment variables
+├── README.md            # Project documentation
+└── screenshot.png       # Swagger UI screenshot
+```
+
+---
+
+## 📦 Requirements
+
+Create `requirements.txt` with:
+
+```
+fastapi==0.141.1
+uvicorn==0.52.1
+supabase==2.3.0
+python-dotenv==1.2.2
+```
+
+Install with:
+
+```bash
+pip install -r requirements.txt
 ```
 
 ---
 
 ## 📬 Submission
 
-This repository is public and contains **≥ 6 meaningful commits** (one per stage).  
-A reviewer can clone, run, and test the full CRUD cycle in under 5 minutes using the instructions above.
-
+This repository is **public** and contains **≥ 6 meaningful commits** (one per stage).  
+A reviewer can clone, configure, and run the secured API in under 5 minutes using the instructions above.
+![Swagger UI with Bearer Auth](Screenshots/Authorize-lock.png)
+![Protected/Profile Response](Screenshots/Protected-profile.png)
+![Protected/Dashboard Response](Screenshots/Protected-dashboard.png)
+![Protected/Profile Response](Screenshots/Protected-profile.png)
+![Logout Request Response](Screenshots/auth-logout.png)
 ---
 
 ## 👤 Author
 
 **Muhammad Rizwan** – FlyRank AI Intern, Backend Track
+
+---
+
+## 📝 License
+
+This project is built for educational purposes as part of the FlyRank Internship program.
+```
 
 ---
