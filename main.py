@@ -29,3 +29,50 @@ class LoginRequest(BaseModel):
 @app.get("/")
 def read_root():
     return {"message": "Welcome to the Auth API"}
+
+# ----- Signup endpoint (required) -----
+@app.post("/auth/signup", status_code=201)
+def signup(user_data: SignUpRequest):
+    # Validate input
+    if not user_data.email or not user_data.password:
+        raise HTTPException(status_code=400, detail="Email and password are required")
+    
+    try:
+        response = supabase.auth.sign_up({
+            "email": user_data.email,
+            "password": user_data.password
+        })
+    except Exception as e:
+        # Supabase may raise exceptions for duplicate email, etc.
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    # Check if user creation succeeded
+    if response.user is None:
+        # Sometimes Supabase returns an error in response
+        raise HTTPException(status_code=400, detail="Signup failed")
+    
+    return {"user": response.user.model_dump()}
+
+# ----- Login endpoint (required) -----
+@app.post("/auth/login")
+def login(user_data: LoginRequest):
+    if not user_data.email or not user_data.password:
+        raise HTTPException(status_code=400, detail="Email and password are required")
+    
+    try:
+        response = supabase.auth.sign_in_with_password({
+            "email": user_data.email,
+            "password": user_data.password
+        })
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Invalid login credentials")
+    
+    if response.user is None:
+        raise HTTPException(status_code=401, detail="Invalid login credentials")
+    
+    # Return access token and refresh token
+    return {
+        "access_token": response.session.access_token,
+        "refresh_token": response.session.refresh_token,
+        "user": response.user.model_dump()
+    }
