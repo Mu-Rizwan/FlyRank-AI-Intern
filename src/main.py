@@ -24,6 +24,33 @@ MAX_PAGES = 3
 os.makedirs("cache", exist_ok=True)
 os.makedirs("output", exist_ok=True)
 
+# ----- Pydantic Schema for validated records -----
+class BookRecord(BaseModel):
+    title: str
+    product_url: HttpUrl
+    price_text: str
+    price_gbp: float = Field(ge=0)  # Cleaned price
+    availability_text: str
+    rating_text: Optional[str] = None
+    description: Optional[str] = None
+    source_page: HttpUrl
+    fetched_at: str  # ISO format timestamp
+
+def clean_price(price_text: str) -> Optional[float]:
+    """Convert '£51.77' to 51.77"""
+    if not price_text:
+        return None
+    try:
+        # Remove currency symbol and any spaces
+        cleaned = price_text.replace("£", "").replace("Â", "").strip()
+        return float(cleaned)
+    except ValueError:
+        return None
+
+def normalize_url(base: str, relative: str) -> str:
+    """Convert relative URL to absolute using urljoin"""
+    return urljoin(base, relative)
+
 def fetch_url(url: str, cache_key: str = None) -> Optional[str]:
     """Fetch a URL with caching."""
     if cache_key:
@@ -84,14 +111,12 @@ def discover_books() -> List[str]:
                 time.sleep(DELAY)
         else:
             break
+    
+    print(f"catalogue_pages={pages_discovered}, discovered={len(book_urls)}")
     return list(book_urls)
 
 def extract_book_details(url: str, source_page: str) -> Dict[str, Any]:
-    """
-    Extract all fields from a book detail page.
-    Returns a dict with the raw data.
-    """
-    # Generate cache key from URL
+    """Extract all fields from a book detail page."""
     parsed = urlparse(url)
     path_parts = parsed.path.split("/")
     cache_key = path_parts[-2] if len(path_parts) >= 2 else f"book_{hash(url)}"
@@ -102,19 +127,15 @@ def extract_book_details(url: str, source_page: str) -> Dict[str, Any]:
     
     soup = BeautifulSoup(html, "html.parser")
     
-    # Title - from h1
     title_elem = soup.select_one("h1")
     title = title_elem.text.strip() if title_elem else None
     
-    # Price - from p.price_color
     price_elem = soup.select_one("p.price_color")
     price_text = price_elem.text.strip() if price_elem else None
     
-    # Availability - from p.instock.availability
     avail_elem = soup.select_one("p.instock.availability")
     availability_text = avail_elem.text.strip() if avail_elem else None
     
-    # Rating - from p.star-rating
     rating_elem = soup.select_one("p.star-rating")
     rating = None
     if rating_elem:
@@ -123,7 +144,6 @@ def extract_book_details(url: str, source_page: str) -> Dict[str, Any]:
                 rating = cls
                 break
     
-    # Description - from product_page > p
     desc_elem = soup.select_one("div.product_page p")
     description = desc_elem.text.strip() if desc_elem else None
     
@@ -138,17 +158,84 @@ def extract_book_details(url: str, source_page: str) -> Dict[str, Any]:
         "fetched_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
     }
 
-def test_extraction():
-    """Extract one book to verify"""
-    books = discover_books()
-    if books:
-        sample = books[0]
-        print(f"Extracting: {sample}")
-        record = extract_book_details(sample, "https://books.toscrape.com/catalogue/page-1.html")
-        if record:
-            print(json.dumps(record, indent=2))
-        else:
-            print("Extraction failed")
+def process_books():
+    """Main processing function"""
+    start_time = datetime.datetime.now()
+    
+    # Discover books
+    book_urls = discover_books()
+    good_records = []
+    error_records = []
+    
+    for i, url in enumerate(book_urls):
+        print(f"Processing {i+1}/{len(book_urls)}: {url}")
+        
+        # Extract raw data
+        raw = extract_book_details(url, "https://books.toscrape.com/catalogue/page-1.html")
+        if raw is None:
+            error_records.append({
+                "url": url,
+                "error": "Failed to fetch page"
+            })
+            continue
+        
+        # Clean price
+        price_gbp = clean_price(raw.get("price_text"))
+        if price_gbp is None:
+            error_records.append({
+                "url": url,
+                "error": "Invalid price format",
+                "raw": raw
+            })
+            continue
+        
+        # Prepare validated record
+        try:
+            record = BookRecord(
+                title=raw["title"],
+                product_url=raw["product_url"],
+                price_text=raw["price_text"],
+                price_gbp=price_gbp,
+                availability_text=raw["availability_text"],
+                rating_text=raw.get("rating_text"),
+                description=raw.get("description"),
+                source_page=raw["source_page"],
+                fetched_at=raw["fetched_at"]
+            )
+            good_records.append(record.model_dump(mode='json'))
+        except ValidationError as e:
+            error_records.append({
+                "url": url,
+                "error": str(e),
+                "raw": raw
+            })
+        
+        time.sleep(DELAY)
+    
+    # Write outputs
+    with open("output/books.json", "w", encoding="utf-8") as f:
+        json.dump(good_records, f, indent=2)
+    
+    with open("output/errors.json", "w", encoding="utf-8") as f:
+        json.dump(error_records, f, indent=2)
+    
+    # Run report
+    duration = (datetime.datetime.now() - start_time).total_seconds()
+    report = {
+        "start_time": start_time.isoformat(),
+        "duration_seconds": duration,
+        "total_book_urls": len(book_urls),
+        "valid_records": len(good_records),
+        "invalid_records": len(error_records),
+        "cache_hits": 0,  # Track this if you want
+        "failed_pages": len([e for e in error_records if "Failed to fetch" in str(e)]),
+    }
+    
+    with open("output/run-report.json", "w", encoding="utf-8") as f:
+        json.dump(report, f, indent=2)
+    
+    print(f"\n✓ Complete! {len(good_records)} valid records, {len(error_records)} errors")
+    print(f"  Duration: {duration:.1f} seconds")
 
 if __name__ == "__main__":
-    test_extraction()
+    process_books()
