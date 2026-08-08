@@ -26,11 +26,7 @@ os.makedirs("output", exist_ok=True)
 
 # to check robots.txt
 def fetch_url(url: str, cache_key: str = None) -> Optional[str]:
-    """
-    Fetch a URL with caching.
-    If cache_key is provided, save the HTML to cache/{cache_key}.html
-    Returns HTML content or None on failure.
-    """
+    """Fetch a URL with caching."""
     if cache_key:
         cache_file = f"cache/{cache_key}.html"
         if os.path.exists(cache_file):
@@ -59,13 +55,55 @@ def fetch_url(url: str, cache_key: str = None) -> Optional[str]:
         print(f"ERROR fetching {url}: {e}")
         return None
 
-def test_fetch():
-    """Test fetch with caching"""
-    html = fetch_url("https://books.toscrape.com/catalogue/page-1.html", "catalogue-page-1")
-    if html:
-        print(f"Response size: {len(html)} bytes")
+def discover_books() -> List[str]:
+    """
+    Discover all book URLs from the first 3 catalogue pages.
+    Returns a list of absolute URLs.
+    """
+    book_urls: Set[str] = set()
+    current_page_url = urljoin(BASE_URL, "catalogue/page-1.html")
+    pages_discovered = 0
+    
+    while pages_discovered < MAX_PAGES:
+        cache_key = f"catalogue-page-{pages_discovered + 1}"
+        html = fetch_url(current_page_url, cache_key)
+        
+        if html is None:
+            print(f"Failed to fetch {current_page_url}")
+            break
+        
+        soup = BeautifulSoup(html, "html.parser")
+        
+        # Find all book links on the page
+        # Books are inside <article class="product_pod"> with an <a> link
+        for article in soup.select("article.product_pod"):
+            link = article.find("a")
+            if link and link.get("href"):
+                # Make absolute URL
+                book_url = urljoin(current_page_url, link["href"])
+                book_urls.add(book_url)
+        
+        # Find the "next" link
+        next_link = soup.find("a", string="next")
+        if next_link and next_link.get("href"):
+            current_page_url = urljoin(current_page_url, next_link["href"])
+            pages_discovered += 1
+            if pages_discovered < MAX_PAGES:
+                # Wait before next request
+                time.sleep(DELAY)
+        else:
+            break
+    
+    print(f"catalogue_pages={pages_discovered}, discovered={len(book_urls)}")
+    return list(book_urls)
+
+def test_discovery():
+    urls = discover_books()
+    print(f"Unique URLs: {len(urls)}")
+    if len(urls) == 60:
+        print("✓ Found all 60 books")
     else:
-        print("Fetch failed")
+        print(f"⚠ Expected 60, got {len(urls)}")
 
 if __name__ == "__main__":
-    test_fetch()
+    test_discovery()
