@@ -25,6 +25,28 @@ class LoginRequest(BaseModel):
     email: str
     password: str
 
+def get_current_user(authorization: str = Header(None)):
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Access token required")
+    
+    parts = authorization.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        raise HTTPException(status_code=401, detail="Invalid Authorization header format")
+    
+    token = parts[1]
+    if not token:
+        raise HTTPException(status_code=401, detail="Access token required")
+    
+    try:
+        user_response = supabase.auth.get_user(token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    
+    if user_response.user is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    
+    return user_response.user
+
 # ----- Root endpoint (optional) -----
 @app.get("/")
 def read_root():
@@ -83,30 +105,29 @@ def public_info():
 
 # ----- Protected endpoint (required) -----
 @app.get("/protected/profile")
-def protected_profile(authorization: str = Header(None)):
-    if not authorization:
-        raise HTTPException(status_code=401, detail="Access token required")
-    
-    parts = authorization.split()
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        raise HTTPException(status_code=401, detail="Invalid Authorization header format")
-    
-    token = parts[1]
-    if not token:
-        raise HTTPException(status_code=401, detail="Access token required")
-    
-    try:
-        # Verify token with Supabase
-        user_response = supabase.auth.get_user(token)
-    except Exception as e:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-    
-    if user_response.user is None:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-    
-    # Return user info
+def protected_profile(current_user = Depends(get_current_user)):
     return {
-        "id": user_response.user.id,
-        "email": user_response.user.email,
-        "created_at": user_response.user.created_at
+        "id": current_user.id,
+        "email": current_user.email,
+        "created_at": current_user.created_at
     }
+
+# ----- Protected endpoint to prove reuse (required) -----
+@app.get("/protected/dashboard")
+def protected_dashboard(current_user = Depends(get_current_user)):
+    return {"message": f"Welcome {current_user.email}, this is your dashboard"}
+
+# ----- Logout endpoint (required) -----
+@app.post("/auth/logout", status_code=204)
+def logout(current_user = Depends(get_current_user)):
+    # Supabase doesn't have a server-side logout for JWT, but we can call sign_out
+    # to invalidate the session on the client side; but here we just return 204
+    # to indicate the client should discard the token.
+    # Optionally, we can call supabase.auth.sign_out() if we have a session,
+    # but it's not strictly needed.
+    # For completeness, we'll call it (though it may raise if no session).
+    try:
+        supabase.auth.sign_out()
+    except:
+        pass
+    return  # 204 No Content
