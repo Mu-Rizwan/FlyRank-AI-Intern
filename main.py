@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, Header, HTTPException, Depends
 from pydantic import BaseModel
 from supabase import create_client, Client
 from dotenv import load_dotenv
@@ -58,7 +58,30 @@ def signup(user_data: SignUpRequest):
 def login(user_data: LoginRequest):
     if not user_data.email or not user_data.password:
         raise HTTPException(status_code=400, detail="Email and password are required")
+
+# ----- Public endpoint (required) -----
+@app.get("/public/info")
+def public_info():
+    return {"message": "Welcome stranger! This info is public."}
+
+# ----- Protected endpoint (required) -----
+@app.get("/protected/profile")
+def protected_profile(authorization: str = Header(None)):
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Access token required")
     
+    # Expecting "Bearer <token>"
+    parts = authorization.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        raise HTTPException(status_code=401, detail="Invalid Authorization header format")
+    
+    token = parts[1]
+    if not token:
+        raise HTTPException(status_code=401, detail="Access token required")
+    
+    # For now, just return a placeholder (we'll verify in Stage 3)
+    return {"message": "You have a token, but I haven't verified it yet", "token": token}
+
     try:
         response = supabase.auth.sign_in_with_password({
             "email": user_data.email,
