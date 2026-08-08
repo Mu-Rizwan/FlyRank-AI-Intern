@@ -1,10 +1,14 @@
 import os
 from fastapi import FastAPI, Header, HTTPException, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Define the security scheme
+security = HTTPBearer(auto_error=False)  # We handle errors ourselves
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -25,26 +29,16 @@ class LoginRequest(BaseModel):
     email: str
     password: str
 
-def get_current_user(authorization: str = Header(None)):
-    if not authorization:
+def get_current_user(creds: HTTPAuthorizationCredentials = Depends(security)):
+    if creds is None:
         raise HTTPException(status_code=401, detail="Access token required")
-    
-    parts = authorization.split()
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        raise HTTPException(status_code=401, detail="Invalid Authorization header format")
-    
-    token = parts[1]
-    if not token:
-        raise HTTPException(status_code=401, detail="Access token required")
-    
+    token = creds.credentials
     try:
         user_response = supabase.auth.get_user(token)
-    except Exception:
+    except:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
-    
     if user_response.user is None:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
-    
     return user_response.user
 
 # ----- Root endpoint (optional) -----
