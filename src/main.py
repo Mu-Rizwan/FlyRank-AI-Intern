@@ -24,62 +24,79 @@ MAX_PAGES = 3
 os.makedirs("cache", exist_ok=True)
 os.makedirs("output", exist_ok=True)
 
-# ----- Pydantic Schema for validated records -----
+# ----- Pydantic Schema -----
 class BookRecord(BaseModel):
     title: str
     product_url: HttpUrl
     price_text: str
-    price_gbp: float = Field(ge=0)  # Cleaned price
+    price_gbp: float = Field(ge=0)
     availability_text: str
     rating_text: Optional[str] = None
     description: Optional[str] = None
     source_page: HttpUrl
-    fetched_at: str  # ISO format timestamp
+    fetched_at: str
 
 def clean_price(price_text: str) -> Optional[float]:
-    """Convert '£51.77' to 51.77"""
     if not price_text:
         return None
     try:
-        # Remove currency symbol and any spaces
         cleaned = price_text.replace("£", "").replace("Â", "").strip()
         return float(cleaned)
     except ValueError:
         return None
 
-def normalize_url(base: str, relative: str) -> str:
-    """Convert relative URL to absolute using urljoin"""
-    return urljoin(base, relative)
-
 def fetch_url(url: str, cache_key: str = None) -> Optional[str]:
-    """Fetch a URL with caching."""
+    """Fetch a URL with caching and retries for certain errors."""
     if cache_key:
         cache_file = f"cache/{cache_key}.html"
         if os.path.exists(cache_file):
             print(f"CACHE HIT: {url}")
-            with open(cache_file, "r", encoding="utf-8") as f:
-                return f.read()
+            return open(cache_file, "r", encoding="utf-8").read()
     
-    try:
-        print(f"FETCH: {url}")
-        response = requests.get(
-            url,
-            timeout=TIMEOUT,
-            headers={"User-Agent": USER_AGENT}
-        )
-        response.raise_for_status()
-        
-        if cache_key:
-            with open(f"cache/{cache_key}.html", "w", encoding="utf-8") as f:
-                f.write(response.text)
-        
-        return response.text
-    except requests.exceptions.Timeout:
-        print(f"TIMEOUT: {url}")
-        return None
-    except requests.exceptions.RequestException as e:
-        print(f"ERROR fetching {url}: {e}")
-        return None
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            print(f"FETCH: {url} (attempt {attempt + 1})")
+            response = requests.get(
+                url,
+                timeout=TIMEOUT,
+                headers={"User-Agent": USER_AGENT}
+            )
+            
+            if response.status_code == 404:
+                print(f"ERROR 404: {url} (page not found)")
+                return None
+            if response.status_code == 403:
+                print(f"ERROR 403: {url} (forbidden)")
+                return None
+            if response.status_code >= 500:
+                print(f"ERROR {response.status_code}: {url} (server error)")
+                if attempt < MAX_RETRIES:
+                    wait = (2 ** attempt)  # Exponential backoff: 1s, 2s
+                    print(f"  Retrying in {wait}s...")
+                    time.sleep(wait)
+                    continue
+                return None
+            
+            response.raise_for_status()
+            
+            if cache_key:
+                with open(f"cache/{cache_key}.html", "w", encoding="utf-8") as f:
+                    f.write(response.text)
+            
+            return response.text
+        except requests.exceptions.Timeout:
+            print(f"TIMEOUT: {url}")
+            if attempt < MAX_RETRIES:
+                wait = 2 ** attempt
+                print(f"  Retrying in {wait}s...")
+                time.sleep(wait)
+                continue
+            return None
+        except requests.exceptions.RequestException as e:
+            print(f"ERROR fetching {url}: {e}")
+            return None
+    
+    return None
 
 def discover_books() -> List[str]:
     """Discover all book URLs from the first 3 catalogue pages."""
@@ -112,7 +129,6 @@ def discover_books() -> List[str]:
         else:
             break
     
-    print(f"catalogue_pages={pages_discovered}, discovered={len(book_urls)}")
     return list(book_urls)
 
 def extract_book_details(url: str, source_page: str) -> Dict[str, Any]:
@@ -159,58 +175,74 @@ def extract_book_details(url: str, source_page: str) -> Dict[str, Any]:
     }
 
 def process_books():
-    """Main processing function"""
+    """Main processing function with error handling and reporting."""
     start_time = datetime.datetime.now()
+    cache_hits = 0  # Track cache hits (you can increment inside fetch_url if you modify it)
     
     # Discover books
     book_urls = discover_books()
     good_records = []
     error_records = []
+    failed_pages = 0
+    
+    # Add one fake URL for testing (if you want to test failure handling)
+    book_urls.append("https://books.toscrape.com/fake-book.html")
     
     for i, url in enumerate(book_urls):
-        print(f"Processing {i+1}/{len(book_urls)}: {url}")
+        print(f"\nProcessing {i+1}/{len(book_urls)}: {url}")
         
-        # Extract raw data
-        raw = extract_book_details(url, "https://books.toscrape.com/catalogue/page-1.html")
-        if raw is None:
-            error_records.append({
-                "url": url,
-                "error": "Failed to fetch page"
-            })
-            continue
-        
-        # Clean price
-        price_gbp = clean_price(raw.get("price_text"))
-        if price_gbp is None:
-            error_records.append({
-                "url": url,
-                "error": "Invalid price format",
-                "raw": raw
-            })
-            continue
-        
-        # Prepare validated record
         try:
-            record = BookRecord(
-                title=raw["title"],
-                product_url=raw["product_url"],
-                price_text=raw["price_text"],
-                price_gbp=price_gbp,
-                availability_text=raw["availability_text"],
-                rating_text=raw.get("rating_text"),
-                description=raw.get("description"),
-                source_page=raw["source_page"],
-                fetched_at=raw["fetched_at"]
-            )
-            good_records.append(record.model_dump(mode='json'))
-        except ValidationError as e:
+            # Extract raw data
+            raw = extract_book_details(url, "https://books.toscrape.com/catalogue/page-1.html")
+            if raw is None:
+                failed_pages += 1
+                error_records.append({
+                    "url": url,
+                    "error": "Failed to fetch page"
+                })
+                continue
+            
+            # Clean price
+            price_gbp = clean_price(raw.get("price_text"))
+            if price_gbp is None:
+                error_records.append({
+                    "url": url,
+                    "error": "Invalid price format",
+                    "raw": raw
+                })
+                continue
+            
+            # Validate with schema
+            try:
+                record = BookRecord(
+                    title=raw["title"],
+                    product_url=raw["product_url"],
+                    price_text=raw["price_text"],
+                    price_gbp=price_gbp,
+                    availability_text=raw["availability_text"],
+                    rating_text=raw.get("rating_text"),
+                    description=raw.get("description"),
+                    source_page=raw["source_page"],
+                    fetched_at=raw["fetched_at"]
+                )
+                good_records.append(record.model_dump(mode='json'))
+            except ValidationError as e:
+                error_records.append({
+                    "url": url,
+                    "error": str(e),
+                    "raw": raw
+                })
+        except Exception as e:
+            # Catch any unexpected error
+            failed_pages += 1
             error_records.append({
                 "url": url,
-                "error": str(e),
-                "raw": raw
+                "error": f"Unexpected error: {e}"
             })
         
-        time.sleep(DELAY)
+        # Delay between requests
+        if i < len(book_urls) - 1:
+            time.sleep(DELAY)
     
     # Write outputs
     with open("output/books.json", "w", encoding="utf-8") as f:
@@ -223,19 +255,24 @@ def process_books():
     duration = (datetime.datetime.now() - start_time).total_seconds()
     report = {
         "start_time": start_time.isoformat(),
-        "duration_seconds": duration,
+        "duration_seconds": round(duration, 2),
         "total_book_urls": len(book_urls),
         "valid_records": len(good_records),
         "invalid_records": len(error_records),
-        "cache_hits": 0,  # Track this if you want
-        "failed_pages": len([e for e in error_records if "Failed to fetch" in str(e)]),
+        "failed_pages": failed_pages,
+        "cache_hits": 0,  # You can increment this
     }
     
     with open("output/run-report.json", "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
     
-    print(f"\n✓ Complete! {len(good_records)} valid records, {len(error_records)} errors")
+    print(f"\n{'='*50}")
+    print(f"✓ Complete!")
+    print(f"  Valid records: {len(good_records)}")
+    print(f"  Invalid records: {len(error_records)}")
+    print(f"  Failed pages: {failed_pages}")
     print(f"  Duration: {duration:.1f} seconds")
+    print(f"{'='*50}")
 
 if __name__ == "__main__":
     process_books()
