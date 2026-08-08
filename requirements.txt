@@ -1,6 +1,4 @@
-fastapi
-uvicorn
-pydantic
-psycopg[binary]
-python-dotenv
-supabase
+requests==2.32.5
+beautifulsoup4==4.14.3
+pydantic==2.12.4
+python-dotenv==1.2.2

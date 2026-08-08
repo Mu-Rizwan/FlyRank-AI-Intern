@@ -1,4 +1,4 @@
-tasks.db
-venv
-__pycache__
-.env
+cache/
+output/
+__pycache__/
+venv/
